@@ -5,7 +5,7 @@ from prompts import (
     PROMPT_TO_GENERATE_MODIFIED_INSTRUCTION_AND_REJECTED_RESPONSE,
     PROMPT_TO_GENERATE_CHOSEN_RESPONSE,
     PROMPT_TO_GENERATE_JUDGEMENT_ANNOTATION,
-    PROMPT_TO_CATEGORISE_INPUTS
+    PROMPT_TO_CATEGORISE_INPUTS,
 )
 import re
 
@@ -29,10 +29,12 @@ def generate_chosen_response(model, user_instruction: str) -> str:
     return chosen_response
 
 
-def generate_modified_instruction_and_rejected_response(model, original_prompt: str, chosen_response: str) -> tuple[str, str]:
+def generate_modified_instruction_and_rejected_response(
+    model, original_prompt: str, chosen_response: str
+) -> tuple[str, str]:
     """Given an original prompt x_i containing user instructions,
-    this function first generates a modified instruction x'_i, and then 
-    generates a response y^l_i which is designed to be worse 
+    this function first generates a modified instruction x'_i, and then
+    generates a response y^l_i which is designed to be worse
     than y^w_i, the chosen response to the original prompt x_i.
     args:
         model (BaseModel): the model to use for generation
@@ -42,9 +44,11 @@ def generate_modified_instruction_and_rejected_response(model, original_prompt: 
         rejected_response (str): the rejected response y^l_i
     """
 
-    assembled_prompt = PROMPT_TO_GENERATE_MODIFIED_INSTRUCTION_AND_REJECTED_RESPONSE.format(
-        instruction=original_prompt,
-        baseline_response=chosen_response,
+    assembled_prompt = (
+        PROMPT_TO_GENERATE_MODIFIED_INSTRUCTION_AND_REJECTED_RESPONSE.format(
+            instruction=original_prompt,
+            baseline_response=chosen_response,
+        )
     )
     raw_response = model.generate(assembled_prompt)
 
@@ -55,14 +59,19 @@ def generate_modified_instruction_and_rejected_response(model, original_prompt: 
     return modified_instruction, rejected_response
 
 
-def generate_response_pair_and_modified_instruction(model, user_instruction: str) -> tuple[str, str, str]:
+def generate_response_pair_and_modified_instruction(
+    model, user_instruction: str
+) -> tuple[str, str, str]:
     chosen = generate_chosen_response(user_instruction)
-    modified_instruction, rejected = generate_modified_instruction_and_rejected_response(model, user_instruction)
+    modified_instruction, rejected = (
+        generate_modified_instruction_and_rejected_response(model, user_instruction)
+    )
     return chosen, rejected, modified_instruction
 
-    # Now let's generate the judgements.
+
 def generate_multiple_judgements(model, prompt, num_judgements):
     return [generate_judgement(model, prompt) for _ in range(num_judgements)]
+
 
 def generate_judgement(model, prompt: str) -> str:
     """
@@ -86,8 +95,8 @@ def generate_judgement(model, prompt: str) -> str:
     raw_response = model.generate(prompt)
 
     # Use regex to find the judgement
-    match = re.search(r'\[\[([AB])\]\]', raw_response)
-    
+    match = re.search(r"\[\[([AB])\]\]", raw_response)
+
     if match:
         judgement = match.group(1)
     else:
@@ -99,7 +108,9 @@ def generate_judgement(model, prompt: str) -> str:
             judgement = "B"
         else:
             # If still no judgement can be inferred, raise an error
-            raise ValueError(f"Unable to extract a valid judgement from the response: {raw_response[:100]}...")
+            raise ValueError(
+                f"Unable to extract a valid judgement from the response: {raw_response[:100]}..."
+            )
 
     # Log the raw response and extracted judgement
     print(f"Raw response: {raw_response[:100]}...")
@@ -124,7 +135,10 @@ def rejection_sample_judgements(
     Returns:
         list[str]: A list of generated judgements that agree with the ground truth judgement.
     """
-    def do_judgements_agree(generated_judgement: str, ground_truth_judgement: str) -> bool:
+
+    def do_judgements_agree(
+        generated_judgement: str, ground_truth_judgement: str
+    ) -> bool:
         # For now the check is simple, but later it might be more complex.
         return generated_judgement == ground_truth_judgement
 
@@ -134,13 +148,18 @@ def rejection_sample_judgements(
         if do_judgements_agree(generated_judgement, ground_truth_judgement)
     ]
 
+
 def generate_preference_data(model, num_judgements: int, dataset: Dataset):
     # At this stage the dataset only needs to contain some user instructions.
     df = dataset.to_pandas()
-    df[["chosen", "rejected", "modified_instruction"]] = pd.DataFrame(df.apply(
-        lambda row: generate_response_pair_and_modified_instruction(model, row["instruction"]),
-        axis=1
-    ))
+    df[["chosen", "rejected", "modified_instruction"]] = pd.DataFrame(
+        df.apply(
+            lambda row: generate_response_pair_and_modified_instruction(
+                model, row["instruction"]
+            ),
+            axis=1,
+        )
+    )
 
     # Randomize the order of chosen and rejected responses and track which is which
     df["is_chosen_first"] = np.random.choice([True, False], size=len(df))
@@ -153,7 +172,7 @@ def generate_preference_data(model, num_judgements: int, dataset: Dataset):
             responsea=row["chosen"] if row["is_chosen_first"] else row["rejected"],
             responseb=row["rejected"] if row["is_chosen_first"] else row["chosen"],
         ),
-        axis=1
+        axis=1,
     )
 
     # Generate multiple judgements for each datapoint, then perform rejection sampling.
@@ -162,10 +181,14 @@ def generate_preference_data(model, num_judgements: int, dataset: Dataset):
         lambda prompt: generate_multiple_judgements(model, prompt, num_judgements)
     )
     df["retained_judgement"] = df.apply(
-        lambda row: np.random.choice(rejection_sample_judgements(row["judgements"], row["whois_chosen"]))
-        if rejection_sample_judgements(row["judgements"], row["whois_chosen"])
-        else np.nan,
-        axis=1
+        lambda row: (
+            np.random.choice(
+                rejection_sample_judgements(row["judgements"], row["whois_chosen"])
+            )
+            if rejection_sample_judgements(row["judgements"], row["whois_chosen"])
+            else np.nan
+        ),
+        axis=1,
     )
 
     # If there were no valid judgements, drop the datapoint entirely.

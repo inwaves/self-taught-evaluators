@@ -75,4 +75,3 @@ Provide your final response in the following format:
 Category: <one of the categories above>
 Complexity: <score out of 10>
 Length: <choose from (a) to (e)>. DO NOT provide the actual response"""
-
