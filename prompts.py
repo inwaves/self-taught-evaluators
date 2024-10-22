@@ -1,4 +1,10 @@
-PROMPT_TO_GENERATE_CHOSEN_RESPONSE = """"""
+PROMPT_TO_GENERATE_CHOSEN_RESPONSE = """You are a helpful and harmless assistant. Please answer follow the user's instructions below, and output your answer in the requested format.
+
+User instructions:
+{instruction}
+
+Please enclose your answer in <answer> tags. For example: <answer>My answer</answer>
+"""
 
 PROMPT_TO_GENERATE_MODIFIED_INSTRUCTION_AND_REJECTED_RESPONSE = """Below is a conversation between an user and an AI Assistant.
 
@@ -34,11 +40,11 @@ as possible. After providing your explanation, output your final verdict by stri
 {instruction}
 
 [The Start of Assistant A's Answer]
-{responsea}
+{response A}
 [The End of Assistant A's Answer]
 
 [The Start of Assistant B's Answer]
-{responseb}
+{response B}
 [The End of Assistant B's Answer]
 """
 
