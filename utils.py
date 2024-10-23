@@ -10,7 +10,7 @@ import re
 from transformers import PreTrainedModel, PreTrainedTokenizer
 
 
-def generate_chosen_response(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, user_instruction: str) -> str:
+def generate_chosen_response(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, user_instruction: str, max_new_tokens: int) -> str:
     """
     Generate a chosen response based on the user instruction using the provided model and tokeniser.
 
@@ -18,6 +18,7 @@ def generate_chosen_response(model: PreTrainedModel, tokeniser: PreTrainedTokeni
         model (PreTrainedModel): The model to use for generation.
         tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenisation.
         user_instruction (str): The user's instruction.
+        max_new_tokens (int): The maximum number of new tokens to generate.
 
     Returns:
         str: The generated chosen response.
@@ -28,10 +29,12 @@ def generate_chosen_response(model: PreTrainedModel, tokeniser: PreTrainedTokeni
     assembled_prompt = PROMPT_TO_GENERATE_CHOSEN_RESPONSE.format(
         instruction=user_instruction,
     )
+
     # Apply chat template and tokenise
     inputs = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": assembled_prompt}], tokenize=False), return_tensors="pt")
-    outputs = model.generate(**inputs)
+    outputs = model.generate(**inputs, max_new_tokens=max_new_tokens)
     response = tokeniser.decode(outputs[0])
+
     # Extract the answer from the response
     match = re.search(r'<answer>(.*?)</answer>', response, re.DOTALL)
     if match:
@@ -42,7 +45,7 @@ def generate_chosen_response(model: PreTrainedModel, tokeniser: PreTrainedTokeni
 
 
 def generate_modified_instruction_and_rejected_response(
-    model: PreTrainedModel, tokeniser: PreTrainedTokenizer, original_prompt: str, chosen_response: str
+    model: PreTrainedModel, tokeniser: PreTrainedTokenizer, original_prompt: str, chosen_response: str, max_new_tokens: int
 ) -> tuple[str, str]:
     """
     Generate a modified instruction and a rejected response based on the original prompt and chosen response.
@@ -52,7 +55,7 @@ def generate_modified_instruction_and_rejected_response(
         tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenisation.
         original_prompt (str): The original prompt containing user instructions.
         chosen_response (str): The chosen response to the original prompt.
-
+        max_new_tokens (int): The maximum number of new tokens to generate.
     Returns:
         tuple[str, str]: A tuple containing the modified instruction and the rejected response.
     """
@@ -64,11 +67,15 @@ def generate_modified_instruction_and_rejected_response(
     )
 
     tokenised_input = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": assembled_prompt}], tokenize=False), return_tensors="pt")
-    raw_response = model.generate(**tokenised_input)
+    raw_response = model.generate(**tokenised_input, max_new_tokens=max_new_tokens)
+
+    breakpoint()
+
+    decoded_response = tokeniser.decode(raw_response[0])
 
     # Extract the modified instruction and rejected response from the raw response
-    modified_instruction = extract_modified_instruction(raw_response)
-    rejected_response = extract_rejected_response(raw_response)
+    modified_instruction = extract_modified_instruction(decoded_response)
+    rejected_response = extract_rejected_response(decoded_response)
 
     return modified_instruction, rejected_response
 
@@ -118,7 +125,7 @@ def extract_rejected_response(raw_response: str) -> str:
 
 
 def generate_response_pair_and_modified_instruction(
-    model: PreTrainedModel, tokeniser: PreTrainedTokenizer, user_instruction: str
+    model: PreTrainedModel, tokeniser: PreTrainedTokenizer, user_instruction: str, max_new_tokens: int
 ) -> tuple[str, str, str]:
     """
     Generate a chosen response, rejected response, and modified instruction based on the user instruction.
@@ -131,14 +138,14 @@ def generate_response_pair_and_modified_instruction(
     Returns:
         tuple[str, str, str]: A tuple containing the chosen response, rejected response, and modified instruction.
     """
-    chosen = generate_chosen_response(model, tokeniser, user_instruction)
+    chosen = generate_chosen_response(model, tokeniser, user_instruction, max_new_tokens)
     modified_instruction, rejected = generate_modified_instruction_and_rejected_response(
-        model, tokeniser, user_instruction, chosen
+        model, tokeniser, user_instruction, chosen, max_new_tokens
     )
     return chosen, rejected, modified_instruction
 
 
-def generate_multiple_judgements(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, prompt: str, num_judgements: int) -> list[str]:
+def generate_multiple_judgements(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, prompt: str, num_judgements: int, max_new_tokens: int) -> list[str]:
     """
     Generate multiple judgements based on the given prompt using the provided model.
 
@@ -147,14 +154,14 @@ def generate_multiple_judgements(model: PreTrainedModel, tokeniser: PreTrainedTo
         tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenisation.
         prompt (str): The input prompt for generating judgements.
         num_judgements (int): The number of judgements to generate.
-
+        max_new_tokens (int): The maximum number of new tokens to generate.
     Returns:
         list[str]: A list of generated judgements.
     """
-    return [generate_judgement(model, tokeniser, prompt) for _ in range(num_judgements)]
+    return [generate_judgement(model, tokeniser, prompt, max_new_tokens) for _ in range(num_judgements)]
 
 
-def generate_judgement(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, prompt: str) -> str:
+def generate_judgement(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, prompt: str, max_new_tokens: int) -> str:
     """
     Generate a judgement based on the given prompt using the provided model.
 
@@ -167,14 +174,16 @@ def generate_judgement(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, p
         model (PreTrainedModel): The model used to generate the response.
         tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenisation.
         prompt (str): The input prompt for generating the judgement.
-
+        max_new_tokens (int): The maximum number of new tokens to generate.
     Returns:
         str: The extracted judgement, either 'A' or 'B'.
 
     Raises:
         ValueError: If no valid judgement can be extracted from the response.
     """
-    raw_response = model.generate(tokeniser(prompt, return_tensors="pt"))
+
+    prompt = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": prompt}], tokenize=False), return_tensors="pt")
+    raw_response = model.generate(**prompt, max_new_tokens=max_new_tokens)
 
     # Use regex to find the judgement
     match = re.search(r"\[\[([AB])\]\]", raw_response)
@@ -231,7 +240,7 @@ def rejection_sample_judgements(
     ]
 
 
-def generate_preference_data(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, num_judgements: int, dataset: Dataset):
+def generate_preference_data(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, dataset: Dataset, num_judgements: int, max_new_tokens: int) -> Dataset:
     """
     Generate preference data based on the provided dataset and model.
 
@@ -251,7 +260,7 @@ def generate_preference_data(model: PreTrainedModel, tokeniser: PreTrainedTokeni
     df[["chosen", "rejected", "modified_instruction"]] = pd.DataFrame(
         df.apply(
             lambda row: generate_response_pair_and_modified_instruction(
-                model, tokeniser, row["instruction"]
+                model, tokeniser, row["instruction"], max_new_tokens,
             ),
             axis=1,
         )
@@ -299,6 +308,8 @@ def generate_preference_data(model: PreTrainedModel, tokeniser: PreTrainedTokeni
 
     training_dataset = Dataset.from_pandas(df)
     training_dataset.save_to_disk("datasets/training_dataset")
+
+    return training_dataset
 
 
 def tokenise_dataset(dataset: Dataset, tokeniser: PreTrainedTokenizer, max_length: int = 512) -> Dataset:
