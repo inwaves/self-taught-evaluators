@@ -29,19 +29,25 @@ def generate_chosen_response(model: PreTrainedModel, tokeniser: PreTrainedTokeni
     assembled_prompt = PROMPT_TO_GENERATE_CHOSEN_RESPONSE.format(
         instruction=user_instruction,
     )
-
     # Apply chat template and tokenise
     inputs = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": assembled_prompt}], tokenize=False), return_tensors="pt")
     outputs = model.generate(**inputs, max_new_tokens=max_new_tokens)
     response = tokeniser.decode(outputs[0])
 
     # Extract the answer from the response
-    match = re.search(r'<answer>(.*?)</answer>', response, re.DOTALL)
+    assistant_response = response.split("<|start_header_id|>assistant<|end_header_id|>")[-1].strip()
+    match = re.search(r'<answer>(.*?)(?:</answer>|$)', assistant_response, re.DOTALL)
     if match:
         chosen_response = match.group(1).strip()
     else:
-        raise ValueError("Chosen response not found in the raw response.")
-    return chosen_response
+        # If no <answer> tag is found, use the entire assistant response
+        chosen_response = assistant_response
+
+    # Remove any incomplete <answer> tags at the beginning or end
+    chosen_response = re.sub(r'^<answer>|<answer>$', '', chosen_response)
+    chosen_response = re.sub(r'^</answer>|</answer>$', '', chosen_response)
+
+    return chosen_response.strip()
 
 
 def generate_modified_instruction_and_rejected_response(
