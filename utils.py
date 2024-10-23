@@ -7,24 +7,19 @@ from prompts import (
     PROMPT_TO_GENERATE_JUDGEMENT_ANNOTATION,
 )
 import re
+from transformers import PreTrainedTokenizer
 
 
-def generate_chosen_response(model, user_instruction: str) -> str:
-    """Given an original prompt x_i containing user instructions,
-    this function generates a chosen response y^w_i.
-    args:
-        model (BaseModel): the model to use for generation
-        user_instruction (str): the original prompt x_i
-    return:
-        chosen_response (str): the chosen response y^w_i
-    """
+def generate_chosen_response(model, tokenizer, user_instruction: str) -> str:
     assembled_prompt = PROMPT_TO_GENERATE_CHOSEN_RESPONSE.format(
         instruction=user_instruction,
     )
-    raw_response = model.generate(assembled_prompt)
-
-    # Extract the chosen response from the raw response
-    match = re.search(r'<answer>(.*?)</answer>', raw_response, re.DOTALL)
+    # Apply chat template and tokenize
+    inputs = tokenizer(tokenizer.apply_chat_template([{"role": "user", "content": assembled_prompt}], tokenize=False), return_tensors="pt")
+    outputs = model.generate(**inputs)
+    response = tokenizer.decode(outputs[0])
+    # Extract the answer from the response
+    match = re.search(r'<answer>(.*?)</answer>', response, re.DOTALL)
     if match:
         chosen_response = match.group(1).strip()
     else:
@@ -231,3 +226,36 @@ def generate_preference_data(model, num_judgements: int, dataset: Dataset):
 
     training_dataset = Dataset.from_pandas(df)
     training_dataset.save_to_disk("datasets/training_dataset")
+
+
+def tokenise_dataset(dataset: Dataset, tokeniser: PreTrainedTokenizer, max_length: int = 512) -> Dataset:
+    """
+    Tokenize the input dataset using the provided tokeniser.
+
+    Args:
+        dataset (Dataset): The input dataset to tokenise.
+        tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenization.
+        max_length (int, optional): The maximum length of the tokenized sequences. Defaults to 512.
+
+    Returns:
+        Dataset: The tokenized dataset.
+    """
+    def tokenise_function(examples):
+        return tokeniser(
+            examples["instruction"],
+            truncation=True,
+            padding="max_length",
+            max_length=max_length,
+            return_tensors="pt"
+        )
+
+    # Tokenize the dataset
+    tokenized_dataset = dataset.map(tokenise_function, batched=True)
+
+    # Remove the original text column to save memory
+    tokenized_dataset = tokenized_dataset.remove_columns(["instruction"])
+
+    # Set the format of the dataset to PyTorch tensors
+    tokenized_dataset.set_format("torch")
+
+    return tokenized_dataset
