@@ -10,13 +10,13 @@ import re
 from transformers import PreTrainedModel, PreTrainedTokenizer
 
 
-def generate_chosen_response(model: PreTrainedModel, tokenizer: PreTrainedTokenizer, user_instruction: str) -> str:
+def generate_chosen_response(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, user_instruction: str) -> str:
     """
-    Generate a chosen response based on the user instruction using the provided model and tokenizer.
+    Generate a chosen response based on the user instruction using the provided model and tokeniser.
 
     Args:
         model (PreTrainedModel): The model to use for generation.
-        tokenizer (PreTrainedTokenizer): The tokenizer to use for tokenization.
+        tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenisation.
         user_instruction (str): The user's instruction.
 
     Returns:
@@ -28,10 +28,10 @@ def generate_chosen_response(model: PreTrainedModel, tokenizer: PreTrainedTokeni
     assembled_prompt = PROMPT_TO_GENERATE_CHOSEN_RESPONSE.format(
         instruction=user_instruction,
     )
-    # Apply chat template and tokenize
-    inputs = tokenizer(tokenizer.apply_chat_template([{"role": "user", "content": assembled_prompt}], tokenize=False), return_tensors="pt")
+    # Apply chat template and tokenise
+    inputs = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": assembled_prompt}], tokenize=False), return_tensors="pt")
     outputs = model.generate(**inputs)
-    response = tokenizer.decode(outputs[0])
+    response = tokeniser.decode(outputs[0])
     # Extract the answer from the response
     match = re.search(r'<answer>(.*?)</answer>', response, re.DOTALL)
     if match:
@@ -42,14 +42,14 @@ def generate_chosen_response(model: PreTrainedModel, tokenizer: PreTrainedTokeni
 
 
 def generate_modified_instruction_and_rejected_response(
-    model: PreTrainedModel, tokenizer: PreTrainedTokenizer, original_prompt: str, chosen_response: str
+    model: PreTrainedModel, tokeniser: PreTrainedTokenizer, original_prompt: str, chosen_response: str
 ) -> tuple[str, str]:
     """
     Generate a modified instruction and a rejected response based on the original prompt and chosen response.
 
     Args:
         model (PreTrainedModel): The model to use for generation.
-        tokenizer (PreTrainedTokenizer): The tokenizer to use for tokenization.
+        tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenisation.
         original_prompt (str): The original prompt containing user instructions.
         chosen_response (str): The chosen response to the original prompt.
 
@@ -63,7 +63,7 @@ def generate_modified_instruction_and_rejected_response(
         )
     )
 
-    tokenised_input = tokenizer(tokenizer.apply_chat_template([{"role": "user", "content": assembled_prompt}], tokenize=False), return_tensors="pt")
+    tokenised_input = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": assembled_prompt}], tokenize=False), return_tensors="pt")
     raw_response = model.generate(**tokenised_input)
 
     # Extract the modified instruction and rejected response from the raw response
@@ -118,43 +118,43 @@ def extract_rejected_response(raw_response: str) -> str:
 
 
 def generate_response_pair_and_modified_instruction(
-    model: PreTrainedModel, tokenizer: PreTrainedTokenizer, user_instruction: str
+    model: PreTrainedModel, tokeniser: PreTrainedTokenizer, user_instruction: str
 ) -> tuple[str, str, str]:
     """
     Generate a chosen response, rejected response, and modified instruction based on the user instruction.
 
     Args:
         model (PreTrainedModel): The model to use for generation.
-        tokenizer (PreTrainedTokenizer): The tokenizer to use for tokenization.
+        tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenisation.
         user_instruction (str): The user's instruction.
 
     Returns:
         tuple[str, str, str]: A tuple containing the chosen response, rejected response, and modified instruction.
     """
-    chosen = generate_chosen_response(model, tokenizer, user_instruction)
+    chosen = generate_chosen_response(model, tokeniser, user_instruction)
     modified_instruction, rejected = generate_modified_instruction_and_rejected_response(
-        model, tokenizer, user_instruction, chosen
+        model, tokeniser, user_instruction, chosen
     )
     return chosen, rejected, modified_instruction
 
 
-def generate_multiple_judgements(model: PreTrainedModel, tokenizer: PreTrainedTokenizer, prompt: str, num_judgements: int) -> list[str]:
+def generate_multiple_judgements(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, prompt: str, num_judgements: int) -> list[str]:
     """
     Generate multiple judgements based on the given prompt using the provided model.
 
     Args:
         model (PreTrainedModel): The model to use for generation.
-        tokenizer (PreTrainedTokenizer): The tokenizer to use for tokenization.
+        tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenisation.
         prompt (str): The input prompt for generating judgements.
         num_judgements (int): The number of judgements to generate.
 
     Returns:
         list[str]: A list of generated judgements.
     """
-    return [generate_judgement(model, tokenizer, prompt) for _ in range(num_judgements)]
+    return [generate_judgement(model, tokeniser, prompt) for _ in range(num_judgements)]
 
 
-def generate_judgement(model: PreTrainedModel, tokenizer: PreTrainedTokenizer, prompt: str) -> str:
+def generate_judgement(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, prompt: str) -> str:
     """
     Generate a judgement based on the given prompt using the provided model.
 
@@ -165,7 +165,7 @@ def generate_judgement(model: PreTrainedModel, tokenizer: PreTrainedTokenizer, p
 
     Args:
         model (PreTrainedModel): The model used to generate the response.
-        tokenizer (PreTrainedTokenizer): The tokenizer to use for tokenization.
+        tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenisation.
         prompt (str): The input prompt for generating the judgement.
 
     Returns:
@@ -174,7 +174,7 @@ def generate_judgement(model: PreTrainedModel, tokenizer: PreTrainedTokenizer, p
     Raises:
         ValueError: If no valid judgement can be extracted from the response.
     """
-    raw_response = model.generate(tokenizer(prompt, return_tensors="pt"))
+    raw_response = model.generate(tokeniser(prompt, return_tensors="pt"))
 
     # Use regex to find the judgement
     match = re.search(r"\[\[([AB])\]\]", raw_response)
@@ -231,7 +231,7 @@ def rejection_sample_judgements(
     ]
 
 
-def generate_preference_data(model: PreTrainedModel, tokenizer: PreTrainedTokenizer, num_judgements: int, dataset: Dataset):
+def generate_preference_data(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, num_judgements: int, dataset: Dataset):
     """
     Generate preference data based on the provided dataset and model.
 
@@ -240,7 +240,7 @@ def generate_preference_data(model: PreTrainedModel, tokenizer: PreTrainedTokeni
 
     Args:
         model (PreTrainedModel): The model to use for generation.
-        tokenizer (PreTrainedTokenizer): The tokenizer to use for tokenization.
+        tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenisation.
         num_judgements (int): The number of judgements to generate for each datapoint.
         dataset (Dataset): The input dataset containing user instructions.
     """
@@ -251,7 +251,7 @@ def generate_preference_data(model: PreTrainedModel, tokenizer: PreTrainedTokeni
     df[["chosen", "rejected", "modified_instruction"]] = pd.DataFrame(
         df.apply(
             lambda row: generate_response_pair_and_modified_instruction(
-                model, tokenizer, row["instruction"]
+                model, tokeniser, row["instruction"]
             ),
             axis=1,
         )
@@ -277,7 +277,7 @@ def generate_preference_data(model: PreTrainedModel, tokenizer: PreTrainedTokeni
     # Generate multiple judgements for each datapoint, then perform rejection sampling.
     # Keep just one judgement per datapoint – but option to increase this later.
     df["judgements"] = df["prompt"].apply(
-        lambda prompt: generate_multiple_judgements(model, tokenizer, prompt, num_judgements)
+        lambda prompt: generate_multiple_judgements(model, tokeniser, prompt, num_judgements)
     )
     df["retained_judgement"] = df.apply(
         lambda row: (
@@ -303,15 +303,15 @@ def generate_preference_data(model: PreTrainedModel, tokenizer: PreTrainedTokeni
 
 def tokenise_dataset(dataset: Dataset, tokeniser: PreTrainedTokenizer, max_length: int = 512) -> Dataset:
     """
-    Tokenize the input dataset using the provided tokeniser.
+    Tokenise the input dataset using the provided tokeniser.
 
     Args:
         dataset (Dataset): The input dataset to tokenise.
-        tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenization.
-        max_length (int, optional): The maximum length of the tokenized sequences. Defaults to 512.
+        tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenisation.
+        max_length (int, optional): The maximum length of the tokenised sequences. Defaults to 512.
 
     Returns:
-        Dataset: The tokenized dataset.
+        Dataset: The tokenised dataset.
     """
     def tokenise_function(examples):
         return tokeniser(
@@ -322,13 +322,21 @@ def tokenise_dataset(dataset: Dataset, tokeniser: PreTrainedTokenizer, max_lengt
             return_tensors="pt"
         )
 
-    # Tokenize the dataset
-    tokenized_dataset = dataset.map(tokenise_function, batched=True)
+    # Tokenise the dataset
+    tokenised_dataset = dataset.map(tokenise_function, batched=True)
 
     # Remove the original text column to save memory
-    tokenized_dataset = tokenized_dataset.remove_columns(["instruction"])
+    tokenised_dataset = tokenised_dataset.remove_columns(["instruction"])
 
     # Set the format of the dataset to PyTorch tensors
-    tokenized_dataset.set_format("torch")
+    tokenised_dataset.set_format("torch")
 
-    return tokenized_dataset
+    return tokenised_dataset
+
+
+def standardise_wildchat_dataset(dataset: Dataset) -> Dataset:
+    """
+    Standardise the WildChat dataset to the format required for training.
+    """
+    user_instructions = [datapoint["conversation"][0]["content"] for datapoint in dataset]
+    return Dataset.from_pandas(pd.DataFrame({"instruction": user_instructions}))
