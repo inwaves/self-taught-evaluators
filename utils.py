@@ -7,10 +7,24 @@ from prompts import (
     PROMPT_TO_GENERATE_JUDGEMENT_ANNOTATION,
 )
 import re
-from transformers import PreTrainedTokenizer
+from transformers import PreTrainedModel, PreTrainedTokenizer
 
 
-def generate_chosen_response(model, tokenizer, user_instruction: str) -> str:
+def generate_chosen_response(model: PreTrainedModel, tokenizer: PreTrainedTokenizer, user_instruction: str) -> str:
+    """
+    Generate a chosen response based on the user instruction using the provided model and tokenizer.
+
+    Args:
+        model (PreTrainedModel): The model to use for generation.
+        tokenizer (PreTrainedTokenizer): The tokenizer to use for tokenization.
+        user_instruction (str): The user's instruction.
+
+    Returns:
+        str: The generated chosen response.
+
+    Raises:
+        ValueError: If the chosen response is not found in the raw response.
+    """
     assembled_prompt = PROMPT_TO_GENERATE_CHOSEN_RESPONSE.format(
         instruction=user_instruction,
     )
@@ -28,28 +42,29 @@ def generate_chosen_response(model, tokenizer, user_instruction: str) -> str:
 
 
 def generate_modified_instruction_and_rejected_response(
-    model, original_prompt: str, chosen_response: str
+    model: PreTrainedModel, tokenizer: PreTrainedTokenizer, original_prompt: str, chosen_response: str
 ) -> tuple[str, str]:
-    """Given an original prompt x_i containing user instructions,
-    this function first generates a modified instruction x'_i, and then
-    generates a response y^l_i which is designed to be worse
-    than y^w_i, the chosen response to the original prompt x_i.
-    args:
-        model (BaseModel): the model to use for generation
-        original_prompt (str): the original prompt x_i
-        chosen_response (str): the chosen response y^w_i
-    return:
-        modified_instruction (str): the modified instruction x'_i
-        rejected_response (str): the rejected response y^l_i
     """
+    Generate a modified instruction and a rejected response based on the original prompt and chosen response.
 
+    Args:
+        model (PreTrainedModel): The model to use for generation.
+        tokenizer (PreTrainedTokenizer): The tokenizer to use for tokenization.
+        original_prompt (str): The original prompt containing user instructions.
+        chosen_response (str): The chosen response to the original prompt.
+
+    Returns:
+        tuple[str, str]: A tuple containing the modified instruction and the rejected response.
+    """
     assembled_prompt = (
         PROMPT_TO_GENERATE_MODIFIED_INSTRUCTION_AND_REJECTED_RESPONSE.format(
             instruction=original_prompt,
             baseline_response=chosen_response,
         )
     )
-    raw_response = model.generate(assembled_prompt)
+
+    tokenised_input = tokenizer(tokenizer.apply_chat_template([{"role": "user", "content": assembled_prompt}], tokenize=False), return_tensors="pt")
+    raw_response = model.generate(**tokenised_input)
 
     # Extract the modified instruction and rejected response from the raw response
     modified_instruction = extract_modified_instruction(raw_response)
@@ -59,7 +74,18 @@ def generate_modified_instruction_and_rejected_response(
 
 
 def extract_modified_instruction(raw_response: str) -> str:
-    """Extract the modified instruction from the raw response using regex."""
+    """
+    Extract the modified instruction from the raw response using regex.
+
+    Args:
+        raw_response (str): The raw response containing the modified instruction.
+
+    Returns:
+        str: The extracted modified instruction.
+
+    Raises:
+        ValueError: If the modified instruction is not found in the response.
+    """
     pattern = r"User Question Modified\s*([\s\S]*?)\s*(?:The start of Assistant's answer|$)"
     match = re.search(pattern, raw_response, re.IGNORECASE)
     
@@ -70,7 +96,18 @@ def extract_modified_instruction(raw_response: str) -> str:
 
 
 def extract_rejected_response(raw_response: str) -> str:
-    """Extract the rejected response from the raw response using regex."""
+    """
+    Extract the rejected response from the raw response using regex.
+
+    Args:
+        raw_response (str): The raw response containing the rejected response.
+
+    Returns:
+        str: The extracted rejected response.
+
+    Raises:
+        ValueError: If the rejected response is not found in the response.
+    """
     pattern = r"The start of Assistant's answer to the modified instruction\s*([\s\S]*?)\s*The end of Assistant's answer to the modified instruction"
     match = re.search(pattern, raw_response, re.IGNORECASE)
     
@@ -81,20 +118,43 @@ def extract_rejected_response(raw_response: str) -> str:
 
 
 def generate_response_pair_and_modified_instruction(
-    model, user_instruction: str
+    model: PreTrainedModel, tokenizer: PreTrainedTokenizer, user_instruction: str
 ) -> tuple[str, str, str]:
-    chosen = generate_chosen_response(model, user_instruction)
+    """
+    Generate a chosen response, rejected response, and modified instruction based on the user instruction.
+
+    Args:
+        model (PreTrainedModel): The model to use for generation.
+        tokenizer (PreTrainedTokenizer): The tokenizer to use for tokenization.
+        user_instruction (str): The user's instruction.
+
+    Returns:
+        tuple[str, str, str]: A tuple containing the chosen response, rejected response, and modified instruction.
+    """
+    chosen = generate_chosen_response(model, tokenizer, user_instruction)
     modified_instruction, rejected = generate_modified_instruction_and_rejected_response(
-        model, user_instruction, chosen
+        model, tokenizer, user_instruction, chosen
     )
     return chosen, rejected, modified_instruction
 
 
-def generate_multiple_judgements(model, prompt, num_judgements):
-    return [generate_judgement(model, prompt) for _ in range(num_judgements)]
+def generate_multiple_judgements(model: PreTrainedModel, tokenizer: PreTrainedTokenizer, prompt: str, num_judgements: int) -> list[str]:
+    """
+    Generate multiple judgements based on the given prompt using the provided model.
+
+    Args:
+        model (PreTrainedModel): The model to use for generation.
+        tokenizer (PreTrainedTokenizer): The tokenizer to use for tokenization.
+        prompt (str): The input prompt for generating judgements.
+        num_judgements (int): The number of judgements to generate.
+
+    Returns:
+        list[str]: A list of generated judgements.
+    """
+    return [generate_judgement(model, tokenizer, prompt) for _ in range(num_judgements)]
 
 
-def generate_judgement(model, prompt: str) -> str:
+def generate_judgement(model: PreTrainedModel, tokenizer: PreTrainedTokenizer, prompt: str) -> str:
     """
     Generate a judgement based on the given prompt using the provided model.
 
@@ -104,7 +164,8 @@ def generate_judgement(model, prompt: str) -> str:
     match is found. If no judgement can be determined, it raises a ValueError.
 
     Args:
-        model: The model used to generate the response.
+        model (PreTrainedModel): The model used to generate the response.
+        tokenizer (PreTrainedTokenizer): The tokenizer to use for tokenization.
         prompt (str): The input prompt for generating the judgement.
 
     Returns:
@@ -113,7 +174,7 @@ def generate_judgement(model, prompt: str) -> str:
     Raises:
         ValueError: If no valid judgement can be extracted from the response.
     """
-    raw_response = model.generate(prompt)
+    raw_response = model.generate(tokenizer(prompt, return_tensors="pt"))
 
     # Use regex to find the judgement
     match = re.search(r"\[\[([AB])\]\]", raw_response)
@@ -170,7 +231,19 @@ def rejection_sample_judgements(
     ]
 
 
-def generate_preference_data(model, num_judgements: int, dataset: Dataset):
+def generate_preference_data(model: PreTrainedModel, tokenizer: PreTrainedTokenizer, num_judgements: int, dataset: Dataset):
+    """
+    Generate preference data based on the provided dataset and model.
+
+    This function generates response pairs, modified instructions, and judgements for each datapoint in the dataset.
+    It then performs rejection sampling on the judgements and saves the resulting dataset to disk.
+
+    Args:
+        model (PreTrainedModel): The model to use for generation.
+        tokenizer (PreTrainedTokenizer): The tokenizer to use for tokenization.
+        num_judgements (int): The number of judgements to generate for each datapoint.
+        dataset (Dataset): The input dataset containing user instructions.
+    """
     # At this stage the dataset only needs to contain some user instructions.
     df = dataset.to_pandas()
 
@@ -178,7 +251,7 @@ def generate_preference_data(model, num_judgements: int, dataset: Dataset):
     df[["chosen", "rejected", "modified_instruction"]] = pd.DataFrame(
         df.apply(
             lambda row: generate_response_pair_and_modified_instruction(
-                model, row["instruction"]
+                model, tokenizer, row["instruction"]
             ),
             axis=1,
         )
@@ -204,7 +277,7 @@ def generate_preference_data(model, num_judgements: int, dataset: Dataset):
     # Generate multiple judgements for each datapoint, then perform rejection sampling.
     # Keep just one judgement per datapoint – but option to increase this later.
     df["judgements"] = df["prompt"].apply(
-        lambda prompt: generate_multiple_judgements(model, prompt, num_judgements)
+        lambda prompt: generate_multiple_judgements(model, tokenizer, prompt, num_judgements)
     )
     df["retained_judgement"] = df.apply(
         lambda row: (
