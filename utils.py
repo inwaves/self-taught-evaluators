@@ -78,10 +78,10 @@ def generate_modified_instruction_and_rejected_response(
     tokenised_input = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": assembled_prompt}], tokenize=False), return_tensors="pt").to(DEVICE)
     raw_response = model.generate(**tokenised_input, max_new_tokens=max_new_tokens)
 
-    breakpoint()
-
     decoded_response = tokeniser.decode(raw_response[0])
     assistant_response = decoded_response.split("<|start_header_id|>assistant<|end_header_id|>")[-1].strip()
+
+    breakpoint()
 
     # Extract the modified instruction and rejected response from the raw response
     modified_instruction = extract_modified_instruction(assistant_response)
@@ -125,7 +125,7 @@ def extract_rejected_response(raw_response: str) -> str:
     Raises:
         ValueError: If the rejected response is not found in the response.
     """
-    start_pattern = r"The start of Assistant's answer to the modified instruction\s*([\s\S]*)"
+    start_pattern = r"The start of Assistant's answer(?:\s*to the modified instruction)?\s*([\s\S]*)"
     start_match = re.search(start_pattern, raw_response, re.IGNORECASE)
     
     if not start_match:
@@ -133,7 +133,7 @@ def extract_rejected_response(raw_response: str) -> str:
     
     content = start_match.group(1).strip()
     
-    end_pattern = r"([\s\S]*?)\s*The end of Assistant's answer to the modified instruction"
+    end_pattern = r"([\s\S]*?)\s*The end of Assistant's answer(?:\s*to the modified instruction)?"
     end_match = re.search(end_pattern, content, re.IGNORECASE)
     
     if end_match:

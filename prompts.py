@@ -40,11 +40,11 @@ as possible. After providing your explanation, output your final verdict by stri
 {instruction}
 
 [The Start of Assistant A's Answer]
-{response A}
+{responsea}
 [The End of Assistant A's Answer]
 
 [The Start of Assistant B's Answer]
-{response B}
+{responseb}
 [The End of Assistant B's Answer]
 """
 
