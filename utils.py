@@ -34,7 +34,7 @@ def generate_chosen_response(model: PreTrainedModel, tokeniser: PreTrainedTokeni
     )
     # Apply chat template and tokenise
     inputs = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": assembled_prompt}], tokenize=False), return_tensors="pt").to(DEVICE)
-    outputs = model.generate(**inputs, max_new_tokens=max_new_tokens)
+    outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, pad_token_id=tokeniser.eos_token_id)
     response = tokeniser.decode(outputs[0])
 
     # Extract the answer from the response
@@ -76,7 +76,7 @@ def generate_modified_instruction_and_rejected_response(
     )
 
     tokenised_input = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": assembled_prompt}], tokenize=False), return_tensors="pt").to(DEVICE)
-    raw_response = model.generate(**tokenised_input, max_new_tokens=max_new_tokens)
+    raw_response = model.generate(**tokenised_input, max_new_tokens=max_new_tokens, pad_token_id=tokeniser.eos_token_id)
 
     decoded_response = tokeniser.decode(raw_response[0])
     assistant_response = decoded_response.split("<|start_header_id|>assistant<|end_header_id|>")[-1].strip()
@@ -192,7 +192,7 @@ def generate_judgement(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, p
         str: The extracted judgement, either 'A', 'B', or 'NOT FOUND'.
     """
     prompt = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": prompt}], tokenize=False), return_tensors="pt").to(DEVICE)
-    raw_response = model.generate(**prompt, max_new_tokens=max_new_tokens)
+    raw_response = model.generate(**prompt, max_new_tokens=max_new_tokens, pad_token_id=tokeniser.eos_token_id)
 
     decoded_response = tokeniser.decode(raw_response[0])
     assistant_response = decoded_response.split("<|start_header_id|>assistant<|end_header_id|>")[-1].strip()
@@ -291,14 +291,13 @@ def generate_preference_data(model: PreTrainedModel, tokeniser: PreTrainedTokeni
     df["judgements"] = df["prompt"].apply(
         lambda prompt: generate_multiple_judgements(model, tokeniser, prompt, num_judgements, max_new_tokens)
     )
+
+    def rejection_sample_judgements_or_nan(generated_judgements: list[str], ground_truth_judgement: str) -> str:
+        valid_judgements = rejection_sample_judgements(generated_judgements, ground_truth_judgement)
+        return np.random.choice(valid_judgements) if valid_judgements else np.nan
+
     df["retained_judgement"] = df.apply(
-        lambda row: (
-            np.random.choice(
-                rejection_sample_judgements(row["judgements"], row["whois_chosen"])
-            )
-            if rejection_sample_judgements(row["judgements"], row["whois_chosen"])
-            else np.nan
-        ),
+        lambda row: rejection_sample_judgements_or_nan(row["judgements"], row["whois_chosen"]),
         axis=1,
     )
 
