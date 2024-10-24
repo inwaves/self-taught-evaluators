@@ -1,3 +1,4 @@
+import time
 import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -6,7 +7,7 @@ from vllm import LLM
 
 DATASET = "allenai/WildChat-1M"
 MODEL = "meta-llama/Llama-3.1-8B-Instruct"
-NUM_EXAMPLES = 1
+NUM_EXAMPLES = 10
 NUM_JUDGEMENTS = 5
 MAX_NEW_TOKENS = 512
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -24,5 +25,7 @@ if __name__ == "__main__":
     dataset = standardise_wildchat_dataset(dataset)
     print(f"Standardised dataset: {DATASET}")
 
+    start_time = time.perf_counter()
     preference_dataset = generate_preference_data(model, tokenizer, dataset, NUM_JUDGEMENTS, MAX_NEW_TOKENS)
-    print(f"Generated preference dataset: {preference_dataset}")
+    end_time = time.perf_counter()
+    print(f"Generated dataset containing {len(preference_dataset)} judgements in {end_time - start_time:.2f} seconds")

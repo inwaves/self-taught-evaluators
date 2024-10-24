@@ -7,87 +7,95 @@ from prompts import (
     PROMPT_TO_GENERATE_JUDGEMENT_ANNOTATION,
 )
 import re
-from transformers import PreTrainedModel, PreTrainedTokenizer
 import torch
-from vllm import SamplingParams
+from vllm import LLM, SamplingParams
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+ANSWER_SAMPLING_PARAMS = SamplingParams(temperature=0.8, top_p=0.95, max_tokens=1024)
+MODIFIED_INSTRUCTION_AND_REJECTED_RESPONSE_SAMPLING_PARAMS = SamplingParams(temperature=0.8, top_p=0.95, max_tokens=2048)
+JUDGEMENT_SAMPLING_PARAMS = SamplingParams(temperature=0.8, top_p=0.95, max_tokens=512)
 
 
-def generate_chosen_response(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, user_instruction: str, max_new_tokens: int) -> str:
+def batch_generate(model: LLM, prompts: list[str], sampling_params: SamplingParams) -> list[str]:
     """
-    Generate a chosen response based on the user instruction using the provided model and tokeniser.
+    Generate responses for a batch of prompts using vLLM.
 
     Args:
-        model (PreTrainedModel): The model to use for generation.
-        tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenisation.
-        user_instruction (str): The user's instruction.
+        model (LLM): The vLLM model to use for generation.
+        prompts (list[str]): List of prompts to generate responses for.
+        sampling_params (SamplingParams): Sampling parameters for generation.
+
+    Returns:
+        list[str]: List of generated responses.
+    """
+    outputs = model.generate(prompts, sampling_params)
+    return [output.outputs[0].text for output in outputs]
+
+
+def generate_chosen_responses(model: LLM, user_instructions: list[str], max_new_tokens: int) -> list[str]:
+    """
+    Generate chosen responses for a batch of user instructions.
+
+    Args:
+        model (LLM): The vLLM model to use for generation.
+        user_instructions (list[str]): List of user instructions.
         max_new_tokens (int): The maximum number of new tokens to generate.
 
     Returns:
-        str: The generated chosen response.
-
-    Raises:
-        ValueError: If the chosen response is not found in the raw response.
+        list[str]: List of generated chosen responses.
     """
-    assembled_prompt = PROMPT_TO_GENERATE_CHOSEN_RESPONSE.format(
-        instruction=user_instruction,
-    )
-    # Apply chat template and tokenise
-    sampling_params = SamplingParams(temperature=0.8, top_p=0.95, max_tokens=max_new_tokens)
-    outputs = model.generate(assembled_prompt, sampling_params=sampling_params)
-    response = outputs[0].outputs[0].text
+    assembled_prompts = [PROMPT_TO_GENERATE_CHOSEN_RESPONSE.format(instruction=instruction) for instruction in user_instructions]
+    responses = batch_generate(model, assembled_prompts, ANSWER_SAMPLING_PARAMS)
+    
+    chosen_responses = []
+    for response in responses:
+        assistant_response = response.split("<|start_header_id|>assistant<|end_header_id|>")[-1].strip()
+        match = re.search(r'<answer>(.*?)(?:</answer>|$)', assistant_response, re.DOTALL)
+        if match:
+            chosen_response = match.group(1).strip()
+        else:
+            chosen_response = assistant_response
+        chosen_response = re.sub(r'^<answer>|<answer>$', '', chosen_response)
+        chosen_response = re.sub(r'^</answer>|</answer>$', '', chosen_response)
+        chosen_responses.append(chosen_response.strip())
+    
+    return chosen_responses
 
 
-    # Extract the answer from the response
-    assistant_response = response.split("<|start_header_id|>assistant<|end_header_id|>")[-1].strip()
-    match = re.search(r'<answer>(.*?)(?:</answer>|$)', assistant_response, re.DOTALL)
-    if match:
-        chosen_response = match.group(1).strip()
-    else:
-        # If no <answer> tag is found, use the entire assistant response
-        chosen_response = assistant_response
-
-    # Remove any incomplete <answer> tags at the beginning or end
-    chosen_response = re.sub(r'^<answer>|<answer>$', '', chosen_response)
-    chosen_response = re.sub(r'^</answer>|</answer>$', '', chosen_response)
-
-    return chosen_response.strip()
-
-
-def generate_modified_instruction_and_rejected_response(
-    model: PreTrainedModel, tokeniser: PreTrainedTokenizer, original_prompt: str, chosen_response: str, max_new_tokens: int
-) -> tuple[str, str]:
+def generate_modified_instructions_and_rejected_responses(
+    model: LLM, original_prompts: list[str], chosen_responses: list[str], max_new_tokens: int
+) -> tuple[list[str], list[str]]:
     """
-    Generate a modified instruction and a rejected response based on the original prompt and chosen response.
+    Generate modified instructions and rejected responses for a batch of original prompts and chosen responses.
 
     Args:
-        model (PreTrainedModel): The model to use for generation.
-        tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenisation.
-        original_prompt (str): The original prompt containing user instructions.
-        chosen_response (str): The chosen response to the original prompt.
+        model (LLM): The vLLM model to use for generation.
+        original_prompts (list[str]): List of original prompts containing user instructions.
+        chosen_responses (list[str]): List of chosen responses to the original prompts.
         max_new_tokens (int): The maximum number of new tokens to generate.
+
     Returns:
-        tuple[str, str]: A tuple containing the modified instruction and the rejected response.
+        tuple[list[str], list[str]]: A tuple containing lists of modified instructions and rejected responses.
     """
-    assembled_prompt = (
+    assembled_prompts = [
         PROMPT_TO_GENERATE_MODIFIED_INSTRUCTION_AND_REJECTED_RESPONSE.format(
-            instruction=original_prompt,
-            baseline_response=chosen_response,
+            instruction=prompt, baseline_response=response
         )
-    )
-
-    sampling_params = SamplingParams(temperature=0.8, top_p=0.95, max_tokens=max_new_tokens)
-    outputs = model.generate(assembled_prompt, sampling_params=sampling_params)
-    response = outputs[0].outputs[0].text
-
-    assistant_response = response.split("<|start_header_id|>assistant<|end_header_id|>")[-1].strip()
-
-    # Extract the modified instruction and rejected response from the raw response
-    modified_instruction = extract_modified_instruction(assistant_response)
-    rejected_response = extract_rejected_response(assistant_response)
-
-    return modified_instruction, rejected_response
+        for prompt, response in zip(original_prompts, chosen_responses)
+    ]
+    
+    responses = batch_generate(model, assembled_prompts, MODIFIED_INSTRUCTION_AND_REJECTED_RESPONSE_SAMPLING_PARAMS)
+    
+    modified_instructions = []
+    rejected_responses = []
+    for response in responses:
+        assistant_response = response.split("<|start_header_id|>assistant<|end_header_id|>")[-1].strip()
+        modified_instruction = extract_modified_instruction(assistant_response)
+        rejected_response = extract_rejected_response(assistant_response)
+        modified_instructions.append(modified_instruction)
+        rejected_responses.append(rejected_response)
+    
+    return modified_instructions, rejected_responses
 
 
 def extract_modified_instruction(raw_response: str) -> str:
@@ -142,74 +150,57 @@ def extract_rejected_response(raw_response: str) -> str:
         return content
 
 
-def generate_response_pair_and_modified_instruction(
-    model: PreTrainedModel, tokeniser: PreTrainedTokenizer, user_instruction: str, max_new_tokens: int
-) -> tuple[str, str, str]:
+def generate_response_pairs_and_modified_instructions(
+    model: LLM, user_instructions: list[str], max_new_tokens: int
+) -> tuple[list[str], list[str], list[str]]:
     """
-    Generate a chosen response, rejected response, and modified instruction based on the user instruction.
+    Generate chosen responses, rejected responses, and modified instructions for a batch of user instructions.
 
     Args:
-        model (PreTrainedModel): The model to use for generation.
-        tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenisation.
-        user_instruction (str): The user's instruction.
+        model (LLM): The vLLM model to use for generation.
+        user_instructions (list[str]): List of user instructions.
+        max_new_tokens (int): The maximum number of new tokens to generate.
 
     Returns:
-        tuple[str, str, str]: A tuple containing the chosen response, rejected response, and modified instruction.
+        tuple[list[str], list[str], list[str]]: A tuple containing lists of chosen responses, rejected responses, and modified instructions.
     """
-    chosen = generate_chosen_response(model, tokeniser, user_instruction, max_new_tokens)
-    modified_instruction, rejected = generate_modified_instruction_and_rejected_response(
-        model, tokeniser, user_instruction, chosen, max_new_tokens
+    chosen_responses = generate_chosen_responses(model, user_instructions, max_new_tokens)
+    modified_instructions, rejected_responses = generate_modified_instructions_and_rejected_responses(
+        model, user_instructions, chosen_responses, max_new_tokens
     )
-    return chosen, rejected, modified_instruction
+    return chosen_responses, rejected_responses, modified_instructions
 
 
-def generate_multiple_judgements(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, prompt: str, num_judgements: int, max_new_tokens: int) -> list[str]:
+def generate_multiple_judgements(model: LLM, prompts: list[str], num_judgements: int, max_new_tokens: int) -> list[list[str]]:
     """
-    Generate multiple judgements based on the given prompt using the provided model.
+    Generate multiple judgements for a batch of prompts.
 
     Args:
-        model (PreTrainedModel): The model to use for generation.
-        tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenisation.
-        prompt (str): The input prompt for generating judgements.
-        num_judgements (int): The number of judgements to generate.
+        model (LLM): The vLLM model to use for generation.
+        prompts (list[str]): List of input prompts for generating judgements.
+        num_judgements (int): The number of judgements to generate for each prompt.
         max_new_tokens (int): The maximum number of new tokens to generate.
+
     Returns:
-        list[str]: A list of generated judgements.
+        list[list[str]]: A list of lists containing generated judgements for each prompt.
     """
-    return [generate_judgement(model, tokeniser, prompt, max_new_tokens) for _ in range(num_judgements)]
-
-
-def generate_judgement(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, prompt: str, max_new_tokens: int) -> str:
-    """
-    Generate a judgement based on the given prompt using the provided model.
-
-    Args:
-        model (PreTrainedModel): The model used to generate the response.
-        tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenisation.
-        prompt (str): The input prompt for generating the judgement.
-        max_new_tokens (int): The maximum number of new tokens to generate.
-    Returns:
-        str: The extracted judgement, either 'A', 'B', or 'NOT FOUND'.
-    """
-
-    sampling_params = SamplingParams(temperature=0.8, top_p=0.95, max_tokens=max_new_tokens)
-    outputs = model.generate(prompt, sampling_params=sampling_params)
-    raw_response = outputs[0].outputs[0].text
-
-    match = re.search(r"\[\[([AB])\]\]", raw_response)
-    if match:
-        judgement = match.group(1)
-    elif "assistant a is better" in raw_response.lower():
-        judgement = "A"
-    elif "assistant b is better" in raw_response.lower():
-        judgement = "B"
-    else:
-        judgement = "NOT FOUND"
-
-    print(f"Raw response: {raw_response[:100]}...")
-    print(f"Extracted judgement: {judgement}")
-
-    return judgement
+    all_prompts = prompts * num_judgements
+    all_responses = batch_generate(model, all_prompts, JUDGEMENT_SAMPLING_PARAMS)
+    
+    judgements = []
+    for response in all_responses:
+        match = re.search(r"\[\[([AB])\]\]", response)
+        if match:
+            judgement = match.group(1)
+        elif "assistant a is better" in response.lower():
+            judgement = "A"
+        elif "assistant b is better" in response.lower():
+            judgement = "B"
+        else:
+            judgement = "NOT FOUND"
+        judgements.append(judgement)
+    
+    return [judgements[i:i+num_judgements] for i in range(0, len(judgements), num_judgements)]
 
 
 def rejection_sample_judgements(
@@ -241,7 +232,7 @@ def rejection_sample_judgements(
     ]
 
 
-def generate_preference_data(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, dataset: Dataset, num_judgements: int, max_new_tokens: int) -> Dataset:
+def generate_preference_data(model: LLM, dataset: Dataset, num_judgements: int, max_new_tokens: int) -> Dataset:
     """
     Generate preference data based on the provided dataset and model.
 
@@ -249,31 +240,29 @@ def generate_preference_data(model: PreTrainedModel, tokeniser: PreTrainedTokeni
     It then performs rejection sampling on the judgements and saves the resulting dataset to disk.
 
     Args:
-        model (PreTrainedModel): The model to use for generation.
-        tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenisation.
-        num_judgements (int): The number of judgements to generate for each datapoint.
+        model (LLM): The vLLM model to use for generation.
         dataset (Dataset): The input dataset containing user instructions.
+        num_judgements (int): The number of judgements to generate for each datapoint.
+        max_new_tokens (int): The maximum number of new tokens to generate.
+
+    Returns:
+        Dataset: The generated preference dataset.
     """
-    # At this stage the dataset only needs to contain some user instructions.
     df = dataset.to_pandas()
+    user_instructions = df["instruction"].tolist()
 
     print(f"Generating response pairs and modified instructions for {len(df)} datapoints...")
-    df[["chosen", "rejected", "modified_instruction"]] = df.apply(
-        lambda row: pd.Series(
-            generate_response_pair_and_modified_instruction(
-                model, tokeniser, row["instruction"], max_new_tokens
-            )
-        ),
-        axis=1,
-        result_type="expand"
+    chosen_responses, rejected_responses, modified_instructions = generate_response_pairs_and_modified_instructions(
+        model, user_instructions, max_new_tokens
     )
-    print(f"COMPLETE!")
+    df["chosen"] = chosen_responses
+    df["rejected"] = rejected_responses
+    df["modified_instruction"] = modified_instructions
+    print("COMPLETE!")
 
-    # Randomize the order of chosen and rejected responses and track which is which
     df["is_chosen_first"] = np.random.choice([True, False], size=len(df))
     df["whois_chosen"] = df["is_chosen_first"].map({True: "A", False: "B"})
 
-    # Assemble each datapoint into the prompt format used in the judgement annotation
     df["prompt"] = df.apply(
         lambda row: PROMPT_TO_GENERATE_JUDGEMENT_ANNOTATION.format(
             instruction=row["instruction"],
@@ -284,13 +273,8 @@ def generate_preference_data(model: PreTrainedModel, tokeniser: PreTrainedTokeni
     )
 
     print(f"Generating {num_judgements} judgements for each of the {len(df)} datapoints...")
-
-    # Generate multiple judgements for each datapoint, then perform rejection sampling.
-    # Keep just one judgement per datapoint – but option to increase this later.
-    df["judgements"] = df["prompt"].apply(
-        lambda prompt: generate_multiple_judgements(model, tokeniser, prompt, num_judgements, max_new_tokens)
-    )
-
+    judgements = generate_multiple_judgements(model, df["prompt"].tolist(), num_judgements, max_new_tokens)
+    df["judgements"] = judgements
 
     def rejection_sample_judgements_or_nan(generated_judgements: list[str], ground_truth_judgement: str) -> str:
         valid_judgements = rejection_sample_judgements(generated_judgements, ground_truth_judgement)
@@ -301,50 +285,15 @@ def generate_preference_data(model: PreTrainedModel, tokeniser: PreTrainedTokeni
         axis=1,
     )
 
-    print(f"COMPLETE!")
+    print("COMPLETE!")
 
-    # If there were no valid judgements, drop the datapoint entirely.
     df.dropna(subset=["retained_judgement"], inplace=True)
-
     print(f"After removing data points with no valid judgements, {len(df)} datapoints remain.")
 
     training_dataset = Dataset.from_pandas(df)
     training_dataset.save_to_disk("datasets/training_dataset")
 
     return training_dataset
-
-
-def tokenise_dataset(dataset: Dataset, tokeniser: PreTrainedTokenizer, max_length: int = 512) -> Dataset:
-    """
-    Tokenise the input dataset using the provided tokeniser.
-
-    Args:
-        dataset (Dataset): The input dataset to tokenise.
-        tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenisation.
-        max_length (int, optional): The maximum length of the tokenised sequences. Defaults to 512.
-
-    Returns:
-        Dataset: The tokenised dataset.
-    """
-    def tokenise_function(examples):
-        return {k: v.to(DEVICE) for k, v in tokeniser(
-            examples["instruction"],
-            truncation=True,
-            padding="max_length",
-            max_length=max_length,
-            return_tensors="pt"
-        ).items()}
-
-    # Tokenise the dataset
-    tokenised_dataset = dataset.map(tokenise_function, batched=True)
-
-    # Remove the original text column to save memory
-    tokenised_dataset = tokenised_dataset.remove_columns(["instruction"])
-
-    # Set the format of the dataset to PyTorch tensors
-    tokenised_dataset.set_format("torch")
-
-    return tokenised_dataset
 
 
 def standardise_wildchat_dataset(dataset: Dataset) -> Dataset:
