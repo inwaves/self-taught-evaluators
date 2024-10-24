@@ -162,17 +162,17 @@ def generate_response_pairs_and_modified_instructions(
     return chosen_responses, rejected_responses, modified_instructions
 
 
-def generate_multiple_judgements(model: LLM, prompts: list[str], num_judgements: int) -> list[list[str]]:
+def generate_multiple_critiques_judgements(model: LLM, prompts: list[str], num_judgements: int) -> list[list[str]]:
     """
-    Generate multiple judgements for a batch of prompts.
+    Generate multiple critiques and judgements for a batch of prompts.
 
     Args:
         model (LLM): The vLLM model to use for generation.
-        prompts (list[str]): List of input prompts for generating judgements.
-        num_judgements (int): The number of judgements to generate for each prompt.
+        prompts (list[str]): List of input prompts for generating critiques and judgements.
+        num_judgements (int): The number of critiques and judgements to generate for each prompt.
 
     Returns:
-        list[list[str]]: A list of lists containing generated judgements for each prompt.
+        list[list[str]]: A list of lists containing generated critiques and judgements for each prompt.
     """
     all_prompts = prompts * num_judgements
     all_responses = batch_generate(model, all_prompts, JUDGEMENT_SAMPLING_PARAMS)
@@ -190,8 +190,11 @@ def generate_multiple_judgements(model: LLM, prompts: list[str], num_judgements:
             judgement = "NOT FOUND"
         judgements.append(judgement)
     
-    # Group judgements by prompt, ensuring each sublist contains judgements for a single prompt
-    return [judgements[i:i+num_judgements] for i in range(0, len(judgements), num_judgements)]
+    # Group critiques and judgements by prompt, ensuring each sublist contains critiques and judgements for a single prompt
+    critiques = [all_responses[i:i+num_judgements] for i in range(0, len(all_responses), num_judgements)]
+    judgements = [judgements[i:i+num_judgements] for i in range(0, len(judgements), num_judgements)]
+    breakpoint()
+    return critiques, judgements
 
 
 def rejection_sample_judgements(
@@ -268,9 +271,12 @@ def generate_preference_data(model: LLM, dataset: Dataset, num_judgements: int) 
         axis=1,
     )
 
-    print(f"Generating {num_judgements} judgements for each of the {len(df)} datapoints...")
-    judgements = generate_multiple_judgements(model, df["prompt"].tolist(), num_judgements)
+    print(f"Generating {num_judgements} critiques and judgements for each of the {len(df)} datapoints...")
+    critiques, judgements = generate_multiple_critiques_judgements(model, df["prompt"].tolist(), num_judgements)
+    df["critiques"] = critiques
     df["judgements"] = judgements
+
+    breakpoint()
 
     def rejection_sample_judgements_or_nan(generated_judgements: list[str], ground_truth_judgement: str) -> str:
         valid_judgements = rejection_sample_judgements(generated_judgements, ground_truth_judgement)
