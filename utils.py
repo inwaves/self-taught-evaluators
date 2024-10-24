@@ -125,13 +125,21 @@ def extract_rejected_response(raw_response: str) -> str:
     Raises:
         ValueError: If the rejected response is not found in the response.
     """
-    pattern = r"The start of Assistant's answer to the modified instruction\s*([\s\S]*?)\s*The end of Assistant's answer to the modified instruction"
-    match = re.search(pattern, raw_response, re.IGNORECASE)
+    start_pattern = r"The start of Assistant's answer to the modified instruction\s*([\s\S]*)"
+    start_match = re.search(start_pattern, raw_response, re.IGNORECASE)
     
-    if not match:
+    if not start_match:
         raise ValueError("Rejected response not found in the response.")
     
-    return match.group(1).strip()
+    content = start_match.group(1).strip()
+    
+    end_pattern = r"([\s\S]*?)\s*The end of Assistant's answer to the modified instruction"
+    end_match = re.search(end_pattern, content, re.IGNORECASE)
+    
+    if end_match:
+        return end_match.group(1).strip()
+    else:
+        return content
 
 
 def generate_response_pair_and_modified_instruction(
