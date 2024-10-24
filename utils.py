@@ -183,48 +183,30 @@ def generate_judgement(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, p
     """
     Generate a judgement based on the given prompt using the provided model.
 
-    This function generates a response using the model, then attempts to extract
-    a judgement (either 'A' or 'B') from the response. It first looks for an exact
-    match using regex, then tries to infer the judgement from the text if no exact
-    match is found. If no judgement can be determined, it raises a ValueError.
-
     Args:
         model (PreTrainedModel): The model used to generate the response.
         tokeniser (PreTrainedTokenizer): The tokeniser to use for tokenisation.
         prompt (str): The input prompt for generating the judgement.
         max_new_tokens (int): The maximum number of new tokens to generate.
     Returns:
-        str: The extracted judgement, either 'A' or 'B'.
-
-    Raises:
-        ValueError: If no valid judgement can be extracted from the response.
+        str: The extracted judgement, either 'A', 'B', or 'NOT FOUND'.
     """
-
     prompt = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": prompt}], tokenize=False), return_tensors="pt").to(DEVICE)
     raw_response = model.generate(**prompt, max_new_tokens=max_new_tokens)
 
     decoded_response = tokeniser.decode(raw_response[0])
     assistant_response = decoded_response.split("<|start_header_id|>assistant<|end_header_id|>")[-1].strip()
 
-    # Use regex to find the judgement
     match = re.search(r"\[\[([AB])\]\]", assistant_response)
-
     if match:
         judgement = match.group(1)
+    elif "assistant a is better" in assistant_response.lower():
+        judgement = "A"
+    elif "assistant b is better" in assistant_response.lower():
+        judgement = "B"
     else:
-        # If no exact match is found, try to infer the judgement
-        lower_response = assistant_response.lower()
-        if "assistant a is better" in lower_response:
-            judgement = "A"
-        elif "assistant b is better" in lower_response:
-            judgement = "B"
-        else:
-            # If still no judgement can be inferred, raise an error
-            raise ValueError(
-                f"Unable to extract a valid judgement from the response: {assistant_response[:100]}..."
-            )
+        judgement = "NOT FOUND"
 
-    # Log the raw response and extracted judgement
     print(f"Raw response: {assistant_response[:100]}...")
     print(f"Extracted judgement: {judgement}")
 
@@ -251,7 +233,6 @@ def rejection_sample_judgements(
     def do_judgements_agree(
         generated_judgement: str, ground_truth_judgement: str
     ) -> bool:
-        # For now the check is simple, but later it might be more complex.
         return generated_judgement == ground_truth_judgement
 
     return [
