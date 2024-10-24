@@ -203,14 +203,17 @@ def generate_judgement(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, p
     prompt = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": prompt}], tokenize=False), return_tensors="pt").to(DEVICE)
     raw_response = model.generate(**prompt, max_new_tokens=max_new_tokens)
 
+    decoded_response = tokeniser.decode(raw_response[0])
+    assistant_response = decoded_response.split("<|start_header_id|>assistant<|end_header_id|>")[-1].strip()
+
     # Use regex to find the judgement
-    match = re.search(r"\[\[([AB])\]\]", raw_response)
+    match = re.search(r"\[\[([AB])\]\]", assistant_response)
 
     if match:
         judgement = match.group(1)
     else:
         # If no exact match is found, try to infer the judgement
-        lower_response = raw_response.lower()
+        lower_response = assistant_response.lower()
         if "assistant a is better" in lower_response:
             judgement = "A"
         elif "assistant b is better" in lower_response:
@@ -218,11 +221,11 @@ def generate_judgement(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, p
         else:
             # If still no judgement can be inferred, raise an error
             raise ValueError(
-                f"Unable to extract a valid judgement from the response: {raw_response[:100]}..."
+                f"Unable to extract a valid judgement from the response: {assistant_response[:100]}..."
             )
 
     # Log the raw response and extracted judgement
-    print(f"Raw response: {raw_response[:100]}...")
+    print(f"Raw response: {assistant_response[:100]}...")
     print(f"Extracted judgement: {judgement}")
 
     return judgement
