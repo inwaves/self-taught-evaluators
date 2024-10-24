@@ -275,13 +275,14 @@ def generate_preference_data(model: PreTrainedModel, tokeniser: PreTrainedTokeni
     df = dataset.to_pandas()
 
     print(f"Generating response pairs and modified instructions for {len(df)} datapoints...")
-    df[["chosen", "rejected", "modified_instruction"]] = pd.DataFrame(
-        df.apply(
-            lambda row: generate_response_pair_and_modified_instruction(
-                model, tokeniser, row["instruction"], max_new_tokens,
-            ),
-            axis=1,
-        )
+    df[["chosen", "rejected", "modified_instruction"]] = df.apply(
+        lambda row: pd.Series(
+            generate_response_pair_and_modified_instruction(
+                model, tokeniser, row["instruction"], max_new_tokens
+            )
+        ),
+        axis=1,
+        result_type="expand"
     )
     print(f"COMPLETE!")
 
