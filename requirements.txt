@@ -3,3 +3,4 @@ numpy
 datasets
 pytest
 transformers
+torch==2.3.0

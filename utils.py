@@ -8,6 +8,9 @@ from prompts import (
 )
 import re
 from transformers import PreTrainedModel, PreTrainedTokenizer
+import torch
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def generate_chosen_response(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, user_instruction: str, max_new_tokens: int) -> str:
@@ -30,7 +33,7 @@ def generate_chosen_response(model: PreTrainedModel, tokeniser: PreTrainedTokeni
         instruction=user_instruction,
     )
     # Apply chat template and tokenise
-    inputs = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": assembled_prompt}], tokenize=False), return_tensors="pt")
+    inputs = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": assembled_prompt}], tokenize=False), return_tensors="pt").to(DEVICE)
     outputs = model.generate(**inputs, max_new_tokens=max_new_tokens)
     response = tokeniser.decode(outputs[0])
 
@@ -72,7 +75,7 @@ def generate_modified_instruction_and_rejected_response(
         )
     )
 
-    tokenised_input = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": assembled_prompt}], tokenize=False), return_tensors="pt")
+    tokenised_input = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": assembled_prompt}], tokenize=False), return_tensors="pt").to(DEVICE)
     raw_response = model.generate(**tokenised_input, max_new_tokens=max_new_tokens)
 
     breakpoint()
@@ -188,7 +191,7 @@ def generate_judgement(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, p
         ValueError: If no valid judgement can be extracted from the response.
     """
 
-    prompt = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": prompt}], tokenize=False), return_tensors="pt")
+    prompt = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": prompt}], tokenize=False), return_tensors="pt").to(DEVICE)
     raw_response = model.generate(**prompt, max_new_tokens=max_new_tokens)
 
     # Use regex to find the judgement
@@ -331,13 +334,13 @@ def tokenise_dataset(dataset: Dataset, tokeniser: PreTrainedTokenizer, max_lengt
         Dataset: The tokenised dataset.
     """
     def tokenise_function(examples):
-        return tokeniser(
+        return {k: v.to(DEVICE) for k, v in tokeniser(
             examples["instruction"],
             truncation=True,
             padding="max_length",
             max_length=max_length,
             return_tensors="pt"
-        )
+        ).items()}
 
     # Tokenise the dataset
     tokenised_dataset = dataset.map(tokenise_function, batched=True)
