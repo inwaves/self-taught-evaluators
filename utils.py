@@ -305,7 +305,7 @@ def generate_preference_data(model: PreTrainedModel, tokeniser: PreTrainedTokeni
     # Generate multiple judgements for each datapoint, then perform rejection sampling.
     # Keep just one judgement per datapoint – but option to increase this later.
     df["judgements"] = df["prompt"].apply(
-        lambda prompt: generate_multiple_judgements(model, tokeniser, prompt, num_judgements)
+        lambda prompt: generate_multiple_judgements(model, tokeniser, prompt, num_judgements, max_new_tokens)
     )
     df["retained_judgement"] = df.apply(
         lambda row: (
