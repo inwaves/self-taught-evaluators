@@ -9,6 +9,7 @@ from prompts import (
 import re
 from transformers import PreTrainedModel, PreTrainedTokenizer
 import torch
+from vllm import SamplingParams
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -33,9 +34,10 @@ def generate_chosen_response(model: PreTrainedModel, tokeniser: PreTrainedTokeni
         instruction=user_instruction,
     )
     # Apply chat template and tokenise
-    inputs = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": assembled_prompt}], tokenize=False), return_tensors="pt").to(DEVICE)
-    outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, pad_token_id=tokeniser.eos_token_id)
-    response = tokeniser.decode(outputs[0])
+    sampling_params = SamplingParams(temperature=0.8, top_p=0.95, max_tokens=max_new_tokens)
+    outputs = model.generate(assembled_prompt, sampling_params=sampling_params)
+    response = outputs[0].outputs[0].text
+
 
     # Extract the answer from the response
     assistant_response = response.split("<|start_header_id|>assistant<|end_header_id|>")[-1].strip()
@@ -75,13 +77,11 @@ def generate_modified_instruction_and_rejected_response(
         )
     )
 
-    tokenised_input = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": assembled_prompt}], tokenize=False), return_tensors="pt").to(DEVICE)
-    raw_response = model.generate(**tokenised_input, max_new_tokens=max_new_tokens, pad_token_id=tokeniser.eos_token_id)
+    sampling_params = SamplingParams(temperature=0.8, top_p=0.95, max_tokens=max_new_tokens)
+    outputs = model.generate(assembled_prompt, sampling_params=sampling_params)
+    response = outputs[0].outputs[0].text
 
-    decoded_response = tokeniser.decode(raw_response[0])
-    assistant_response = decoded_response.split("<|start_header_id|>assistant<|end_header_id|>")[-1].strip()
-
-    breakpoint()
+    assistant_response = response.split("<|start_header_id|>assistant<|end_header_id|>")[-1].strip()
 
     # Extract the modified instruction and rejected response from the raw response
     modified_instruction = extract_modified_instruction(assistant_response)
@@ -191,23 +191,22 @@ def generate_judgement(model: PreTrainedModel, tokeniser: PreTrainedTokenizer, p
     Returns:
         str: The extracted judgement, either 'A', 'B', or 'NOT FOUND'.
     """
-    prompt = tokeniser(tokeniser.apply_chat_template([{"role": "user", "content": prompt}], tokenize=False), return_tensors="pt").to(DEVICE)
-    raw_response = model.generate(**prompt, max_new_tokens=max_new_tokens, pad_token_id=tokeniser.eos_token_id)
 
-    decoded_response = tokeniser.decode(raw_response[0])
-    assistant_response = decoded_response.split("<|start_header_id|>assistant<|end_header_id|>")[-1].strip()
+    sampling_params = SamplingParams(temperature=0.8, top_p=0.95, max_tokens=max_new_tokens)
+    outputs = model.generate(prompt, sampling_params=sampling_params)
+    raw_response = outputs[0].outputs[0].text
 
-    match = re.search(r"\[\[([AB])\]\]", assistant_response)
+    match = re.search(r"\[\[([AB])\]\]", raw_response)
     if match:
         judgement = match.group(1)
-    elif "assistant a is better" in assistant_response.lower():
+    elif "assistant a is better" in raw_response.lower():
         judgement = "A"
-    elif "assistant b is better" in assistant_response.lower():
+    elif "assistant b is better" in raw_response.lower():
         judgement = "B"
     else:
         judgement = "NOT FOUND"
 
-    print(f"Raw response: {assistant_response[:100]}...")
+    print(f"Raw response: {raw_response[:100]}...")
     print(f"Extracted judgement: {judgement}")
 
     return judgement
@@ -291,6 +290,7 @@ def generate_preference_data(model: PreTrainedModel, tokeniser: PreTrainedTokeni
     df["judgements"] = df["prompt"].apply(
         lambda prompt: generate_multiple_judgements(model, tokeniser, prompt, num_judgements, max_new_tokens)
     )
+
 
     def rejection_sample_judgements_or_nan(generated_judgements: list[str], ground_truth_judgement: str) -> str:
         valid_judgements = rejection_sample_judgements(generated_judgements, ground_truth_judgement)
