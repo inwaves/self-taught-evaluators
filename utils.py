@@ -81,8 +81,6 @@ def generate_modified_instruction_and_rejected_response(
     decoded_response = tokeniser.decode(raw_response[0])
     assistant_response = decoded_response.split("<|start_header_id|>assistant<|end_header_id|>")[-1].strip()
 
-    breakpoint()
-
     # Extract the modified instruction and rejected response from the raw response
     modified_instruction = extract_modified_instruction(assistant_response)
     rejected_response = extract_rejected_response(assistant_response)
