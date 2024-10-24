@@ -32,14 +32,13 @@ def batch_generate(model: LLM, prompts: list[str], sampling_params: SamplingPara
     return [output.outputs[0].text for output in outputs]
 
 
-def generate_chosen_responses(model: LLM, user_instructions: list[str], max_new_tokens: int) -> list[str]:
+def generate_chosen_responses(model: LLM, user_instructions: list[str]) -> list[str]:
     """
     Generate chosen responses for a batch of user instructions.
 
     Args:
         model (LLM): The vLLM model to use for generation.
         user_instructions (list[str]): List of user instructions.
-        max_new_tokens (int): The maximum number of new tokens to generate.
 
     Returns:
         list[str]: List of generated chosen responses.
@@ -63,7 +62,7 @@ def generate_chosen_responses(model: LLM, user_instructions: list[str], max_new_
 
 
 def generate_modified_instructions_and_rejected_responses(
-    model: LLM, original_prompts: list[str], chosen_responses: list[str], max_new_tokens: int
+    model: LLM, original_prompts: list[str], chosen_responses: list[str]
 ) -> tuple[list[str], list[str]]:
     """
     Generate modified instructions and rejected responses for a batch of original prompts and chosen responses.
@@ -72,7 +71,6 @@ def generate_modified_instructions_and_rejected_responses(
         model (LLM): The vLLM model to use for generation.
         original_prompts (list[str]): List of original prompts containing user instructions.
         chosen_responses (list[str]): List of chosen responses to the original prompts.
-        max_new_tokens (int): The maximum number of new tokens to generate.
 
     Returns:
         tuple[list[str], list[str]]: A tuple containing lists of modified instructions and rejected responses.
@@ -106,16 +104,13 @@ def extract_modified_instruction(raw_response: str) -> str:
         raw_response (str): The raw response containing the modified instruction.
 
     Returns:
-        str: The extracted modified instruction.
-
-    Raises:
-        ValueError: If the modified instruction is not found in the response.
+        str: The extracted modified instruction or "NO INSTRUCTION" if not found.
     """
     pattern = r"User Question Modified\s*([\s\S]*?)\s*(?:The start of Assistant's answer|$)"
     match = re.search(pattern, raw_response, re.IGNORECASE)
     
     if not match:
-        raise ValueError("Modified instruction not found in the response.")
+        return "NO INSTRUCTION"
     
     return match.group(1).strip()
 
@@ -128,16 +123,13 @@ def extract_rejected_response(raw_response: str) -> str:
         raw_response (str): The raw response containing the rejected response.
 
     Returns:
-        str: The extracted rejected response.
-
-    Raises:
-        ValueError: If the rejected response is not found in the response.
+        str: The extracted rejected response or "NO REJECTED ANSWER" if not found.
     """
     start_pattern = r"The start of Assistant's answer(?:\s*to the modified instruction)?\s*([\s\S]*)"
     start_match = re.search(start_pattern, raw_response, re.IGNORECASE)
     
     if not start_match:
-        raise ValueError("Rejected response not found in the response.")
+        return "NO REJECTED ANSWER"
     
     content = start_match.group(1).strip()
     
@@ -147,11 +139,11 @@ def extract_rejected_response(raw_response: str) -> str:
     if end_match:
         return end_match.group(1).strip()
     else:
-        return content
+        return content if content else "NO REJECTED ANSWER"
 
 
 def generate_response_pairs_and_modified_instructions(
-    model: LLM, user_instructions: list[str], max_new_tokens: int
+    model: LLM, user_instructions: list[str]
 ) -> tuple[list[str], list[str], list[str]]:
     """
     Generate chosen responses, rejected responses, and modified instructions for a batch of user instructions.
@@ -159,19 +151,18 @@ def generate_response_pairs_and_modified_instructions(
     Args:
         model (LLM): The vLLM model to use for generation.
         user_instructions (list[str]): List of user instructions.
-        max_new_tokens (int): The maximum number of new tokens to generate.
 
     Returns:
         tuple[list[str], list[str], list[str]]: A tuple containing lists of chosen responses, rejected responses, and modified instructions.
     """
-    chosen_responses = generate_chosen_responses(model, user_instructions, max_new_tokens)
+    chosen_responses = generate_chosen_responses(model, user_instructions)
     modified_instructions, rejected_responses = generate_modified_instructions_and_rejected_responses(
-        model, user_instructions, chosen_responses, max_new_tokens
+        model, user_instructions, chosen_responses
     )
     return chosen_responses, rejected_responses, modified_instructions
 
 
-def generate_multiple_judgements(model: LLM, prompts: list[str], num_judgements: int, max_new_tokens: int) -> list[list[str]]:
+def generate_multiple_judgements(model: LLM, prompts: list[str], num_judgements: int) -> list[list[str]]:
     """
     Generate multiple judgements for a batch of prompts.
 
@@ -179,7 +170,6 @@ def generate_multiple_judgements(model: LLM, prompts: list[str], num_judgements:
         model (LLM): The vLLM model to use for generation.
         prompts (list[str]): List of input prompts for generating judgements.
         num_judgements (int): The number of judgements to generate for each prompt.
-        max_new_tokens (int): The maximum number of new tokens to generate.
 
     Returns:
         list[list[str]]: A list of lists containing generated judgements for each prompt.
@@ -200,6 +190,7 @@ def generate_multiple_judgements(model: LLM, prompts: list[str], num_judgements:
             judgement = "NOT FOUND"
         judgements.append(judgement)
     
+    # Group judgements by prompt, ensuring each sublist contains judgements for a single prompt
     return [judgements[i:i+num_judgements] for i in range(0, len(judgements), num_judgements)]
 
 
@@ -232,7 +223,7 @@ def rejection_sample_judgements(
     ]
 
 
-def generate_preference_data(model: LLM, dataset: Dataset, num_judgements: int, max_new_tokens: int) -> Dataset:
+def generate_preference_data(model: LLM, dataset: Dataset, num_judgements: int) -> Dataset:
     """
     Generate preference data based on the provided dataset and model.
 
@@ -243,7 +234,6 @@ def generate_preference_data(model: LLM, dataset: Dataset, num_judgements: int, 
         model (LLM): The vLLM model to use for generation.
         dataset (Dataset): The input dataset containing user instructions.
         num_judgements (int): The number of judgements to generate for each datapoint.
-        max_new_tokens (int): The maximum number of new tokens to generate.
 
     Returns:
         Dataset: The generated preference dataset.
@@ -253,12 +243,18 @@ def generate_preference_data(model: LLM, dataset: Dataset, num_judgements: int, 
 
     print(f"Generating response pairs and modified instructions for {len(df)} datapoints...")
     chosen_responses, rejected_responses, modified_instructions = generate_response_pairs_and_modified_instructions(
-        model, user_instructions, max_new_tokens
+        model, user_instructions
     )
     df["chosen"] = chosen_responses
     df["rejected"] = rejected_responses
     df["modified_instruction"] = modified_instructions
     print("COMPLETE!")
+
+    df["rejected"] = df["rejected"].replace("NO REJECTED ANSWER", pd.NA)
+    df["modified_instruction"] = df["modified_instruction"].replace("NO INSTRUCTION", pd.NA)
+    df.dropna(subset=["chosen", "rejected", "modified_instruction"], inplace=True)
+
+    print(f"After removing data points with no valid rejected responses, {len(df)} datapoints remain.")
 
     df["is_chosen_first"] = np.random.choice([True, False], size=len(df))
     df["whois_chosen"] = df["is_chosen_first"].map({True: "A", False: "B"})
@@ -273,7 +269,7 @@ def generate_preference_data(model: LLM, dataset: Dataset, num_judgements: int, 
     )
 
     print(f"Generating {num_judgements} judgements for each of the {len(df)} datapoints...")
-    judgements = generate_multiple_judgements(model, df["prompt"].tolist(), num_judgements, max_new_tokens)
+    judgements = generate_multiple_judgements(model, df["prompt"].tolist(), num_judgements)
     df["judgements"] = judgements
 
     def rejection_sample_judgements_or_nan(generated_judgements: list[str], ground_truth_judgement: str) -> str:
@@ -301,4 +297,9 @@ def standardise_wildchat_dataset(dataset: Dataset) -> Dataset:
     Standardise the WildChat dataset to the format required for training.
     """
     user_instructions = [datapoint["conversation"][0]["content"] for datapoint in dataset]
-    return Dataset.from_pandas(pd.DataFrame({"instruction": user_instructions}))
+    df = pd.DataFrame({"instruction": user_instructions})
+
+    print(f"Removing user instruction duplicates...\nLength of dataset before: {len(df)}")
+    df.drop_duplicates(subset=["instruction"], inplace=True)
+    print(f"Removing user instruction duplicates... COMPLETE\nLength of dataset after: {len(df)}")
+    return Dataset.from_pandas(df)
